@@ -1,0 +1,123 @@
+---
+title: "Untitled"
+author: "Yueli Ma"
+date: "12/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(mgcv)
+library(modelr)
+```
+```{r}
+birth_df = read_csv("birthweight.csv")
+birth_df = janitor::clean_names(birth_df)
+birth_df = na.omit(birth_df)
+birth_df = relocate(birth_df, bwt)
+birth_df$babysex <-as.factor(birth_df$babysex)
+birth_df$frace <-as.factor(birth_df$frace)
+birth_df$malform <-as.factor(birth_df$malform)
+birth_df$mrace <-as.factor(birth_df$mrace)
+view(birth_df)
+model_df =
+  birth_df%>%
+  select(bwt, blength)
+model_df%>%
+  ggplot(aes(x = blength, y = bwt))+
+  geom_point()
+lm_fit = lm(bwt~ blength , data = model_df)
+summary(fit)
+fit%>%
+  broom::tidy()%>%
+  mutate(term = str_replace(term, "blength", "length of baby"))%>%
+  select(term, estimate, p.value)
+modelr::add_predictions(model_df, fit)
+modelr::add_residuals(model_df, fit)%>%
+  ggplot(aes(x = bwt, y = resid))+
+  geom_point()
+cv_df =
+  crossv_mc(birth_df,100)%>%
+  mutate(train = map(train, as_tibble),
+         test = map(test, as_tibble)
+         )
+cv_df
+cv_df = 
+  cv_df%>%
+  mutate(
+    mymodel = map(.x = train, ~lm(bwt~blength, data = .x)),
+    secmodel = map(.x = train, ~lm(bwt~blength + gaweeks, data = .x)),
+    thirmodel = map(.x = train, ~lm(bwt~bhead+blength+babysex+ bhead*blength + 
+                                      bhead*babysex + blength*babysex + 
+                                      bhead*babysex+blength, data = .x))
+  )%>%
+  mutate(
+    rmse_mymodel = map2_dbl(.x = mymodel, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_secmodel = map2_dbl(.x = secmodel, .y = test, ~rmse(model = .x, data = .y)),
+    rmse_thirmodel = map2_dbl(.x = thirmodel, .y = test, ~rmse(model = .x, data = .y))
+  )
+cv_df%>%
+  select(rmse_mymodel,rmse_secmodel,rmse_thirmodel)
+
+```
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+view(weather_df)
+
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+boot_straps = 
+  data_frame(
+    strap_number = 1:5000,
+    strap_sample = rerun(5000, boot_sample(weather_df))
+  )
+
+boot_straps
+
+boot_sample(weather_df) %>% 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_point(alpha = .5) +
+  stat_smooth(method = "lm")
+
+bootstrap_results = 
+  boot_straps %>% 
+  mutate(
+    models = map(strap_sample, ~lm(tmax ~ tmin, data = .x) ),
+    results = map(models, broom::glance)) %>% 
+  select(-strap_sample, -models) %>% 
+  unnest(results) 
+bootstrap_results%>%
+  ggplot(aes(x = r.squared))+
+  geom_density()
+bootstrap_results %>% 
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975))
+
+bootstrap_results = 
+  boot_straps %>% 
+  mutate(
+    models = map(strap_sample, ~lm(tmax ~ tmin, data = .x) ),
+    results = map(models, broom::tidy)) %>% 
+  select(-strap_sample, -models) %>% 
+  unnest(results) 
+bootstrap_results %>% 
+  group_by(strap_number) 
+```
